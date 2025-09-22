@@ -1,0 +1,231 @@
+{
+  "$type": "MpInoStudio.Datas.MPDocument, MpInoStudio",
+  "Area": {
+    "$type": "MpInoStudio.Datas.AreaInfo, MpInoStudio",
+    "PCount": 128,
+    "MCount": 1024,
+    "TCount": 128,
+    "CCount": 100,
+    "DCount": 100,
+    "RCount": 50
+  },
+  "Codes": {
+    "$type": "System.Collections.Generic.List`1[[MpInoStudio.Datas.ArduinoCode, MpInoStudio]], mscorlib",
+    "$values": [
+      {
+        "$type": "MpInoStudio.Datas.ArduinoCode, MpInoStudio",
+        "Name": "autocpr",
+        "Code": "#include <Wire.h>\r\n\r\n#define Z_PUL 7\r\n#define Z_DIR 8\r\n#define X_PUL 5\r\n#define X_DIR 6\r\n\r\n#define STOPbtn 26\r\n#define SLEEPbtn 27\r\n\r\n#define Z_LIMIT_B 22\r\n#define Z_LIMIT_F 23\r\n#define X_LIMIT_B 24\r\n#define X_LIMIT_F 25\r\n\r\n#define FSR_sensor A0\r\n#define analCCC A1\r\n\r\n#define baudrate 115200\r\n#define speed 1\r\n#define slave 10\r\n\r\nvolatile bool detect_act = false;\r\nunsigned long long i;\r\nvolatile bool stop = false;\r\nvolatile bool start = false;\r\nvolatile bool sleep = false;\r\nvolatile bool actflag = false;\r\nvolatile bool FSR_detected = false;\r\nvolatile int FSR_val = 0;\r\nvolatile bool do_Actuator = false;\r\nvolatile bool stopp = false;\r\n\r\nvolatile bool Z_LIMIT_BACK = false;\r\nvolatile bool X_LIMIT_BACK = false;\r\nvolatile bool Z_LIMIT_FOR = false;\r\nvolatile bool X_LIMIT_FOR = false;\r\nvolatile bool x_stop = false;\r\nvolatile bool y_stop = false;\r\nvolatile bool ccc_detect = false;\r\n\r\nvoid setup()\r\n{\r\n   Wire.begin();\r\n   Serial.begin( baudrate             );\r\n   pinMode( Z_PUL, OUTPUT             );\r\n   pinMode( Z_DIR, OUTPUT             );\r\n   pinMode( X_PUL, OUTPUT             );\r\n   pinMode( X_DIR, OUTPUT             );\r\n   pinMode( LED_BUILTIN, OUTPUT       );\r\n   pinMode( STOPbtn, INPUT_PULLUP       );\r\n   pinMode( SLEEPbtn, INPUT_PULLUP    );\r\n   pinMode( Z_LIMIT_B, INPUT_PULLUP    );\r\n   pinMode( Z_LIMIT_F, INPUT_PULLUP    );\r\n   pinMode( X_LIMIT_B, INPUT_PULLUP    );\r\n   pinMode( X_LIMIT_F, INPUT_PULLUP    );\r\n   \r\n   // 변수 초기화\r\n   start = false;\r\n   stop = false;\r\n   sleep = false;\r\n   actflag = false;\r\n   FSR_detected = false;\r\n   FSR_val = 0;\r\n   do_Actuator = false;\r\n   stopp = false;\r\n   Z_LIMIT_BACK = false;\r\n   X_LIMIT_BACK = false;\r\n   Z_LIMIT_FOR = false;\r\n   X_LIMIT_FOR = false;\r\n   x_stop = false;\r\n   y_stop = false;\r\n\r\n   cli();  // 인터럽트 비활성화\r\n   TCCR5A = 0;\r\n   TCCR5B = 0;\r\n   TCNT5 = 0;\r\n   OCR5A = 8000;  // 수가 줄수록 빨리 인터럽트\r\n   TCCR5B |= ( 1 << WGM52 ); // CTC 모드\r\n   TCCR5B |= ( 1 << CS52 ) | ( 1 << CS50 ); // 1024 분주 설정\r\n   TIMSK5 |= ( 1 << OCIE5A ); // 타이머 비교 인터럽트 허용\r\n   sei();  // 인터럽트 활성화\r\n\r\n}\r\n\r\nvoid delayNanoseconds( unsigned int ns )\r\n{\r\n   // 대략적인 딜레이를 위해 어셈블리어 nop 명령어 사용\r\n   unsigned int cycles = ( F_CPU / 1000000000L ) * ns / 3;\r\n   for ( unsigned int i = 0; i < cycles; i++ )\r\n   {\r\n      asm volatile ( \"nop\" );\r\n   }\r\n}\r\n\r\nISR( TIMER5_COMPA_vect )\r\n{\r\n   FSR_val = analogRead( FSR_sensor );\r\n   if ( FSR_val > 100 ) FSR_detected = true;\r\n   else FSR_detected = false;\r\n   \r\n   _READCCC();\r\n}\r\n\r\n// 비상 정지 버튼 동작코드\r\nvoid _STOPACTU()\r\n{\r\n   actflag = true;\r\n}\r\n\r\n\r\n\r\n// 정지버튼 동작코드\r\nvoid _STOP()\r\n{\r\n   stop = true;\r\n   _RESET();\r\n\r\n}\r\n\r\n// 대기버튼 동작코드\r\nvoid _SLEEP()\r\n{\r\n   sleep = !sleep;\r\n   delay( 300 );\r\n   _WHILE_SLEEP();\r\n}\r\n\r\n// 시작버튼 동작코드\r\nvoid _START()\r\n{\r\n   start = true;\r\n   stop = false;\r\n}\r\n\r\nvoid _Z_FORWARD()\r\n{\r\n   digitalWrite( Z_DIR, LOW );\r\n}\r\n\r\nvoid _Z_BACKWARD()\r\n{\r\n   digitalWrite( Z_DIR, HIGH );\r\n}\r\n\r\nvoid _X_FORWARD()\r\n{\r\n   digitalWrite( X_DIR, HIGH );\r\n}\r\n\r\nvoid _X_BACKWARD()\r\n{\r\n   digitalWrite( X_DIR, LOW );\r\n}\r\n\r\nvoid _RESET()\r\n{\r\n   while ( !Z_LIMIT_BACK || !X_LIMIT_BACK )\r\n   {\r\n      _Z_BACKWARD();\r\n      _X_BACKWARD();\r\n      if ( digitalRead( Z_LIMIT_B ) ) Z_LIMIT_BACK = true;\r\n      if ( digitalRead( X_LIMIT_B ) ) X_LIMIT_BACK = true;\r\n      if ( !Z_LIMIT_BACK && !X_LIMIT_BACK )\r\n      {\r\n         digitalWrite( Z_PUL, HIGH );\r\n         digitalWrite( X_PUL, HIGH );\r\n         delayMicroseconds( speed );\r\n         digitalWrite( X_PUL, LOW );\r\n         digitalWrite( Z_PUL, LOW );\r\n         delayMicroseconds( speed );\r\n      }\r\n      else if ( !Z_LIMIT_BACK && X_LIMIT_BACK  )\r\n      {\r\n         digitalWrite( Z_PUL, HIGH );\r\n         delayMicroseconds( speed );\r\n         digitalWrite( Z_PUL, LOW );\r\n         delayMicroseconds( speed );\r\n      }\r\n\r\n      else if ( !X_LIMIT_BACK && Z_LIMIT_BACK )\r\n      {\r\n         digitalWrite( X_PUL, HIGH );\r\n         delayMicroseconds( speed );\r\n         digitalWrite( X_PUL, LOW );\r\n         delayMicroseconds( speed );\r\n      }\r\n\r\n      if ( digitalRead( SLEEPbtn ) ) _SLEEP();\r\n\r\n\r\n   }\r\n   start = false;\r\n   Z_LIMIT_BACK = false;\r\n   X_LIMIT_BACK = false;\r\n}\r\n\r\nvoid _WHILE_SLEEP()\r\n{\r\n   while ( sleep )\r\n   {\r\n      // 대기 버튼이 눌렸을 때 대기 상태 유지\r\n      // 이때 정지 버튼 작동시 종료\r\n      if ( digitalRead( STOPbtn ) )\r\n      {\r\n         sleep = !sleep;\r\n         stop = true;\r\n      }\r\n   \r\n      else if ( digitalRead( SLEEPbtn ) )\r\n      {\r\n         _SLEEP();\r\n      }\r\n      delay( 1 );\r\n   }\r\n\r\n}\r\n\r\nvoid _SSEBTN()\r\n{\r\n   // sleep 플래그 확인\r\n   if ( digitalRead( SLEEPbtn ) )   _SLEEP();\r\n\r\n   // stop 플래그 확인\r\n   if ( digitalRead( STOPbtn ) )   _STOP();\r\n}\r\n/*\r\nvoid _READCCC()\r\n{\r\n   // grab blocks!\r\n   pixy.ccc.getBlocks();\r\n\r\n   // If there are detect blocks, print them!\r\n   if ( pixy.ccc.numBlocks )\r\n   {\r\n      Serial.print( \"Detected \" );\r\n      Serial.println( pixy.ccc.numBlocks );\r\n      ccc_detect = true;\r\n      for ( int in = 0; in < pixy.ccc.numBlocks; in++ )\r\n      {\r\n         if ( pixy.ccc.blocks[i].m_x > 155 && pixy.ccc.blocks[i].m_x < 165 && pixy.ccc.blocks[i].m_y > 100 && pixy.ccc.blocks[i].m_y < 110 )\r\n         {\r\n            Serial.println( \"Center arrive!\" );\r\n            ccc_detect = true;\r\n         }\r\n      }\r\n   }\r\n}*/\r\n\r\nvoid _READCCC()\r\n{\r\n   //if ( digitalRead( digCCC ) )\r\n   int CCC_value = 0;\r\n   Serial.println( analogRead( analCCC ) );\r\n   CCC_value = analogRead( analCCC );\r\n   //Serial.println( ccc_detect );\r\n   if ( CCC_value > 288 && CCC_value < 295 ) ccc_detect = true;\r\n   \r\n   delay( 500 );\r\n\r\n}\r\n\r\nvoid loop()\r\n{\r\n   _SSEBTN();\r\n   \r\n   Wire.requestFrom( slave, 3 );\r\n   if ( Wire.available() )\r\n   {\r\n      int status = Wire.read(); // 첫 번째 바이트는 상태\r\n      switch ( status )\r\n      {\r\n         case 0:\r\n            start = false;\r\n            break;\r\n         case 1:\r\n            _START();\r\n            break;\r\n         case 2:\r\n            _START();\r\n            break;\r\n         default :\r\n            break;\r\n      }\r\n   }\r\n   \r\n\r\n   \r\n   if ( detect_act )\r\n   {\r\n      start = false;\r\n      detect_act = false;\r\n   }\r\n   \r\n   while ( start && !stop )\r\n   {\r\n      // X축 작동\r\n      _X_FORWARD();\r\n      while ( !( X_LIMIT_FOR || stop || ccc_detect ) )\r\n      {\r\n         if ( digitalRead( X_LIMIT_F ) )   X_LIMIT_FOR = true;\r\n   \r\n         digitalWrite( X_PUL, HIGH );\r\n         delayMicroseconds( speed );\r\n         digitalWrite( X_PUL, LOW );\r\n         delayMicroseconds( speed );\r\n         \r\n         \r\n         _SSEBTN();\r\n      }\r\n   \r\n      delay( 5 );\r\n   \r\n      // Z축 작동\r\n      _Z_FORWARD();\r\n      while ( !( Z_LIMIT_FOR || FSR_detected || stop ) )\r\n      {\r\n         if ( digitalRead( Z_LIMIT_F ) )   Z_LIMIT_FOR = true;\r\n   \r\n         digitalWrite( Z_PUL, HIGH );\r\n         delayMicroseconds( speed ); // 속도\r\n         digitalWrite( Z_PUL, LOW );\r\n         delayMicroseconds( speed );\r\n   \r\n         _SSEBTN();\r\n         \r\n   \r\n      }\r\n   \r\n      delay( 100 );\r\n   \r\n      if ( ( FSR_detected && ccc_detect )  /* (colorRead && FSR_detected) */ )\r\n      {\r\n         start = false;\r\n         do_Actuator = true;\r\n         while ( !actflag )\r\n         {\r\n            if ( do_Actuator )\r\n            {\r\n               Wire.beginTransmission( slave );\r\n               Wire.write( 1 );\r\n               Wire.endTransmission();\r\n   \r\n               do_Actuator = false;\r\n            }\r\n            \r\n            if ( digitalRead( STOPbtn ) ) actflag = true;\r\n   \r\n         }\r\n         if ( actflag )\r\n         {\r\n            Wire.beginTransmission( slave );\r\n            Wire.write( 2 );\r\n            Wire.endTransmission();\r\n         }\r\n      }\r\n      _RESET();\r\n      detect_act = true;\r\n      actflag = false;\r\n      do_Actuator = false;\r\n      start = false;\r\n      stop = false;\r\n      sleep = false;\r\n      Z_LIMIT_FOR = false;\r\n      X_LIMIT_FOR = false;\r\n      ccc_detect = false;\r\n   }\r\n\r\n}"
+      }
+    ]
+  },
+  "Ladders": {
+    "$type": "System.Collections.Generic.List`1[[MpInoStudio.Ladder.LadderItem, MpInoStudio]], mscorlib",
+    "$values": []
+  },
+  "ProjectName": "autocpr",
+  "LastPort": "COM13",
+  "LastLadderPort": "COM13",
+  "LastDevice": {
+    "$type": "MpInoStudio.Datas.DeviceInfo, MpInoStudio",
+    "DeviceName": "MPINO-8A8R",
+    "Company": "MPINO",
+    "CoreID": "arduino:avr@1.8.4",
+    "BaseBoardFQBN": "arduino:avr:mega",
+    "HeaderFile": "MPINO-8A8R.h",
+    "Pins": {
+      "$type": "System.Collections.Generic.List`1[[MpInoStudio.Datas.Pin, MpInoStudio]], mscorlib",
+      "$values": [
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(22)",
+          "PinNumber": 22,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(23)",
+          "PinNumber": 23,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(24)",
+          "PinNumber": 24,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(25)",
+          "PinNumber": 25,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(26)",
+          "PinNumber": 26,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(27)",
+          "PinNumber": 27,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(28)",
+          "PinNumber": 28,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "I(29)",
+          "PinNumber": 29,
+          "PinType": 1
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(62)",
+          "PinNumber": 62,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(63)",
+          "PinNumber": 63,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(64)",
+          "PinNumber": 64,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(65)",
+          "PinNumber": 65,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(66)",
+          "PinNumber": 66,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(67)",
+          "PinNumber": 67,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(68)",
+          "PinNumber": 68,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "R(69)",
+          "PinNumber": 69,
+          "PinType": 2
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "A(0)",
+          "PinNumber": 0,
+          "PinType": 4
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "A(1)",
+          "PinNumber": 1,
+          "PinType": 4
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "A(2)",
+          "PinNumber": 2,
+          "PinType": 4
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "A(3)",
+          "PinNumber": 3,
+          "PinType": 4
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM5",
+          "PinNumber": 5,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM2",
+          "PinNumber": 2,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM3",
+          "PinNumber": 3,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM6",
+          "PinNumber": 6,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM7",
+          "PinNumber": 7,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "PWM8",
+          "PinNumber": 8,
+          "PinType": 8
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "TCNT1",
+          "PinNumber": 1,
+          "PinType": 16
+        },
+        {
+          "$type": "MpInoStudio.Datas.Pin, MpInoStudio",
+          "Name": "TCNT5",
+          "PinNumber": 5,
+          "PinType": 16
+        }
+      ]
+    }
+  },
+  "Symbols": {
+    "$type": "System.Collections.Generic.List`1[[MpInoStudio.Datas.SymbolInfo, MpInoStudio]], mscorlib",
+    "$values": []
+  },
+  "Hardwares": {
+    "$type": "System.Collections.Generic.List`1[[MpInoStudio.Datas.HardwareInfo, MpInoStudio]], mscorlib",
+    "$values": []
+  },
+  "UseComm": false,
+  "CommDeviceName": null,
+  "CommBrokerAddress": null,
+  "CommID": null,
+  "CommPW": null,
+  "CommPub": {
+    "$type": "System.Collections.Generic.List`1[[System.String, mscorlib]], mscorlib",
+    "$values": []
+  },
+  "CommSub": {
+    "$type": "System.Collections.Generic.List`1[[MpInoStudio.Datas.CommSubscribeInfo, MpInoStudio]], mscorlib",
+    "$values": []
+  }
+}
