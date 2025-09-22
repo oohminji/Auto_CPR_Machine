@@ -26,7 +26,7 @@
 | MCU & Module | MPINO-8A8R, Arduino Mega |
 | 개발 TOOl | MPINO STUDIO, Arduino IDE | 
 | 통신 | I2C |
-| Sensor | 리니어 액추에이터, 압박 센서 |
+| Sensor | 리니어 액추에이터, 압박 센서, 리니어 레일|
 | Language | C , C++ |
 
 ## 개발 중 문제 및 해결
